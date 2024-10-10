@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Trang chủ</title>
+    <link rel="stylesheet" type="text/css" href="./style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" />
+    <link rel="stylesheet" type="text/css"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Lấy tên
+            const fullnameButton = document.getElementById('fullname');
+
+            fetch('http://localhost:8000/api/user', {
+                method: 'GET',
+                headers: {
+                    authorization: 'JWT ' + localStorage.getItem('token') // Gửi mã thông báo hoặc session trong tiêu đề Authorization
+                }
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Request failed');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const userFullName = data.fullName;
+
+                    fullnameButton.querySelector('a').textContent = userFullName;
+                    fullnameButton.querySelector('a').href = './account.html';
+
+                    localStorage.setItem('_id', data._id);
+                    localStorage.setItem('fullName', data.fullName);
+                    localStorage.setItem('email', data.email);
+                    localStorage.setItem('adresses', data.addresses.join(', '));
+                })
+                .catch(error => {
+                    console.log(error);
+                });
+        });
+    </script>
+</head>
+
+<body>
+    <header>
+        <div class="header-left" style="margin-top: 20px;">
+            <h1>
+                <pre> Nhóm BCHL</pre>
+            </h1>
+        </div>
+        <nav class="header-center">
+            <ul>
+                <li><a href="./home.html">Trang chủ</a></li>&nbsp;&nbsp;&nbsp;&nbsp;
+                <li><a href="https://github.com/TranNgocBao12062003/ProjectIOT">Liên hệ</a></li>
+            </ul>
+        </nav>
+        <div class="header-right">
+            <a href="./login.html"><button class="logout-button">Đăng xuất</button></a>
+        </div>
+    </header>
+
+    <div class="chart-container">
+        <div class="date-container">
+            <div class="current-date">
+                <h4 id="current-date"></h4>
+            </div>
+            <div class="date-select">
+                <label for="date-input">Chọn ngày:</label>
+                <input type="date" id="date-input">
+                <button class="btn btn-primary" onclick="updateTimeChart()">Xem</button>
+            </div>
+        </div>
+        <div class="chart-title-container">
+            <h2 class="chart-title">Mực nước theo giờ</h2>
+        </div>
+        <div id="error-message" class="error-message"></div>
+        <canvas id="hourly-chart"></canvas>
+    </div>
+
+    <div class="table-container">
+        <div class="current-data">
+            <h5>Mực nước hiện tại (m): <p style="display: inline;" id="mucNuocHienTai"></p>
+            </h5>
+        </div>
+        <button class="account" id="fullname"><a href="./account.html">User</a></button>
+        <div class="mb-3">
+            <h5>Chọn khu vực</h5>
+            <select id="regionSelect" class="form-select" aria-label="Khu vực">
+                <option value="Hà Nội">Hà Nội</option>
+                <option value="Hòa Bình">Hòa Bình</option>
+                <option value="Lai Châu">Lai Châu</option>
+                <option value="Nam Định">Nam Định</option>
+                <option value="Sơn La">Sơn La</option>
+                <!-- Thêm các khu vực khác vào đây -->
+            </select>
+            <button class="custom-button OK" onclick="changeMap()">Chọn</button>
+            <div class="map-container">
+                <iframe
+                    src="https://maps.google.com/maps?q=đại học bách khoa hà nội&t=&z=10&ie=UTF8&iwloc=&output=embed"
+                    width="100%" height="100%" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.5.1"></script>
+    <script>
+        // Dữ liệu mẫu cho biểu đồ
+        var hourlyData = {
+            labels: ['00h', '01h', '02h', '03h', '04h', '05h', '06h', '07h', '08h', '09h', '10h', '11h', '12h', '13h', '14h', '15h', '16h', '17h', '18h', '19h', '20h', '21h', '22h', '23h'], // Các nhãn trục x
+            datasets: [{
+                label: 'Mực nước (m)',
+                data: [], // Dữ liệu mực nước tương ứng với từng giờ
+                backgroundColor: 'rgba(54, 162, 235, 0.5)', // Màu nền cột
+                borderColor: 'rgba(54, 162, 235, 1)', // Màu viền cột
+                borderWidth: 1 // Độ rộng viền cột
+            }]
+        };
+
+        // Tạo biểu đồ
+        var hourlyChart = new Chart(document.getElementById('hourly-chart'), {
+            type: 'bar', // Loại biểu đồ là bar (hình cột)
+            data: hourlyData,
+            options: {
+                responsive: true, // Biểu đồ có thể đáp ứng kích thước
+                scales: {
+                    y: {
+                        beginAtZero: true // Bắt đầu trục y từ 0
+                    }
+                }
+            }
+        });
+
+        var region = document.querySelector('.form-select');
+        var map = document.querySelector('iframe');
+
+        // Lấy ngày tháng năm hôm nay
+        var today = new Date();
+        var currentDateElement = document.getElementById('current-date');
+        currentDateElement.textContent = today.toLocaleDateString();
+
+        function updateTimeChart() {
+            const dateInput = document.getElementById('date-input');
+            const selectedDate = new Date(dateInput.value);
+
+            var year2 = selectedDate.getFullYear();
+            var month2 = selectedDate.getMonth() + 1;
+            var day2 = selectedDate.getDate();
+
+            var currentDateElement = document.getElementById('current-date');
+            var formattedDate = `${day2}/${month2}/${year2}`;
+            currentDateElement.textContent = formattedDate;
+
+            updateChart(region.value, year2, month2, day2);
+        }
+
+
+        // Hàm cập nhật biểu đồ với dữ liệu đã lấy
+        async function updateChart(address, year, month, day) {
+            try {
+                const response = await fetch(`http://localhost:8000/api/user/address/date?year=${year}&month=${month}&date=${day}&address=${address}`, {
+                    method: 'GET',
+                    headers: {
+                        authorization: 'JWT ' + localStorage.getItem('token')
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Request failed');
+                }
+
+                const responseData = await response.json();
+                const { currHour, prevHour, data } = responseData;
+
+                // Chuẩn bị dữ liệu cho biểu đồ
+                const labels = [];
+                const chartData = [];
+
+                for (let i = 0; i < 24; i++) {
+                    const hour = i.toString().padStart(2, '0');
+                    labels.push(hour + 'h');
+
+                    const hourData = data.find(item => {
+                        const itemTime = new Date(item.time);
+                        return itemTime.getHours() === i;
+                    });
+                    chartData.push(hourData ? hourData.value : 0);
+                }
+
+                // Cập nhật biểu đồ
+                hourlyChart.data.labels = labels;
+                hourlyChart.data.datasets[0].data = chartData;
+                hourlyChart.update();
+
+                /* // In giá trị currHour và prevHour (nếu cần)
+                 console.log('Current hour:', currHour);
+                 console.log('Previous hour:', prevHour);*/
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        async function updateMucNuocHienTai(address) {
+            const twentyFourHours = 24 * 60 * 60 * 1000; // 24 giờ trong milliseconds
+            let currentDay = new Date();
+
+            let mucNuocHienTai = null;
+
+            for (let i = 0; i < 20; i++) {
+                const response = await fetch(`http://localhost:8000/api/user/address/date?year=${currentDay.getFullYear()}&month=${currentDay.getMonth() + 1}&date=${currentDay.getDate()}&address=${address}`);
+                const data = await response.json();
+
+                for (let j = data.data.length - 1; j >= 0; j--) {
+                    if (data.data[j].value !== 0) {
+                        mucNuocHienTai = data.data[j].value.toFixed(2);
+                        break;
+                    }
+                }
+
+                if (mucNuocHienTai !== null) {
+                    break;
+                }
+
+                currentDay = new Date(currentDay - twentyFourHours);
+            }
+
+            const mucNuocHienTaiElement = document.getElementById('mucNuocHienTai');
+            if (mucNuocHienTai !== null) {
+                mucNuocHienTaiElement.innerText = mucNuocHienTai;
+            } else {
+                mucNuocHienTaiElement.innerText = 'Không có dữ liệu';
+            }
+            setTimeout(function() {
+                updateMucNuocHienTai(region.value);
+              }, 60000); // 60000 milliseconds = 1 phút Gọi lại sau 1 phút
+        }
+
+
+
+        function changeMap() {
+            var addresses = localStorage.getItem('adresses');
+            var selectedRegion = region.value;
+
+            if (!addresses.includes(selectedRegion)) {
+                alert(`Địa chỉ: "${selectedRegion}" chưa được thêm`);
+                return;
+            }
+
+            switch (region.value) {
+                case "Hòa Bình":
+                    map.src = "https://maps.google.com/maps?q=nhà máy thủy điện hòa bình&t=&z=10&ie=UTF8&iwloc=&output=embed";
+                    break;
+                case "Lai Châu":
+                    map.src = "https://maps.google.com/maps?q=Nhà máy thủy điện Lai Châu&t=&z=10&ie=UTF8&iwloc=&output=embed";
+                    break;
+                case "Nam Định":
+                    map.src = "https://maps.google.com/maps?q=tượng đài Trần Hưng Đạo&t=&z=10&ie=UTF8&iwloc=&output=embed";
+                    break;
+                case "Sơn La":
+                    map.src = "https://maps.google.com/maps?q=Nhà máy thủy điện Sơn La&t=&z=10&ie=UTF8&iwloc=&output=embed";
+                    break;
+                default:
+                    map.src = "https://maps.google.com/maps?q=đại học bách khoa hà nội&t=&z=10&ie=UTF8&iwloc=&output=embed";
+            }
+
+            var today = new Date();
+            var year1 = today.getFullYear();
+            var month1 = today.getMonth() + 1; // Tháng bắt đầu từ 0, nên cần cộng thêm 1
+            var day1 = today.getDate();
+
+            var currentDateElement = document.getElementById('current-date');
+            currentDateElement.textContent = today.toLocaleDateString();
+
+            updateChart(region.value, year1, month1, day1);
+            updateMucNuocHienTai(region.value);
+        }
+
+
+    </script>
+
+    <footer>
+        <div class="footer-center">© Nhóm BCHL</div>
+        <div class="footer-right">
+            <span>GitHub:</span>
+            <a href="https://github.com/TranNgocBao12062003/ProjectIOT">
+                <i class="fab fa-github"></i>
+            </a>
+        </div>
+    </footer>
+</body>
+
+</html>
